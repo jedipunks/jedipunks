@@ -10,8 +10,12 @@
     [ValidateRange(9, 45)]
     [int]$FontSize = 16,  # Default font size
 
-    [string]$OutFile = "$($env:temp)\BGInfo_$((Get-Date -Format 'yyyyMMddHHmmss')).png"  # Temp output file
+    [string]$OutFile
 )
+
+if($OutFile -eq $null){
+$OutFile = "$($env:temp)\BGInfo_$((Get-Date -Format 'yyyyMMddHHmmss')).png"  # Temp output file
+}
 
 . e:\powershell\Get-License.ps1
 

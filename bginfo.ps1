@@ -1,3 +1,28 @@
+<#
+    BGInfo Wallpaper Generator Script
+    This script generates a desktop wallpaper with system information and sets it as the current wallpaper.
+    It supports customization of background color, text color, label color, data color, font name, and font size.
+    It also includes logging functionality and an option to show license information.
+
+    Usage:
+        .\bginfo.ps1 -BackgroundColor "Blue" -TextColor "White" -LabelColor "Yellow" -DataColor "Green" -FontName "Arial" -FontSize 14 -ShowLicense -maxLogSizeKB 500 -logPath "C:\Logs" -skipRemove
+
+    Parameters:
+        -BackgroundColor: Background color of the wallpaper (default: Black)
+        -TextColor: Color of the text (default: White)
+        -LabelColor: Color of the labels (default: White)
+        -DataColor: Color of the data values (default: Purple)
+        -FontName: Font name for the text (default: Segoe UI)
+        -FontSize: Font size for the text (default: 16)
+        -ShowLicense: Show license information in the generated wallpaper
+        -maxLogSizeKB: Maximum log file size in KB before archiving (default: 1000)
+        -logPath: Path to save log files (default: C:\temp)
+        -skipRemove: Skip removing the generated wallpaper file after setting it as wallpaper
+
+    Version: 1.0
+        - Initial release with basic functionality
+#>
+
 Param(
     [ValidateSet("Black", "White", "Red", "Blue", "Green", "Yellow", "Gray", "Cyan", "Magenta", "Orange", "Purple", "Brown", "Pink", "Lime", "Navy", "Teal", "Silver", "Gold", "Maroon", "Olive")]
     [string]$BackgroundColor = "Black",  # Default: Black background
@@ -9,7 +34,7 @@ Param(
     [string]$LabelColor = "White",  # Default: White text
 
     [ValidateSet("Black", "White", "Red", "Blue", "Green", "Yellow", "Gray", "Cyan", "Magenta", "Orange", "Purple", "Brown", "Pink", "Lime", "Navy", "Teal", "Silver", "Gold", "Maroon", "Olive")]
-    [string]$DataColor = "Orange",  # Default: White text
+    [string]$DataColor = "Purple",  # Default: White text
 
     [string]$FontName = "Segoe UI",  # Default font
 
@@ -18,36 +43,37 @@ Param(
 
     [switch]$ShowLicense,  # Show license information
 
-    [int]$maxLogSizeKB = 5000,
+    [int]$maxLogSizeKB = 1000,  # Maximum log file size in KB before archiving
 
-    $logPath = "C:\temp"
+    $logPath = "C:\temp", # Default log path
+
+    [switch]$skipRemove  # Skip removing the generated wallpaper file, default is to remove it
 )
 
-$appName = "BGINFO"
-$date = Get-Date -Format MMddyyyy
+$appName = "BGINFO" # Application name for logging
+$date = Get-Date -Format MMddyyyy # Date for log file naming
 $OutFile = "$($env:temp)\BGInfo_$((Get-Date -Format 'yyyyMMddHHmmss')).png"  # Temp output file
-
 
 function Write-Log {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$true)][string]$Message,
         [Parameter(Mandatory=$true)][ValidateSet('Information','Warning','Error')][string]$Severity,
-        [System.Management.Automation.ErrorRecord]$ErrorRecord,
-        [switch]$test
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
     )
 
-    #New-Item -Path C:\temp -Name "test_log_$date.txt" -ItemType File -ErrorAction SilentlyContinue | Out-Null
-    $logFile = "$logPath\$date`_$appName`_Log.txt"
+    $logFile = "$logPath\$appName`_Log.txt" # Log file path
 
     if(!(Test-Path $logFile)){
-        New-Item -Path $logPath -Name "$date`_$appName`_Log.txt" -ItemType File -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path $logPath -Name "$appName`_Log.txt" -ItemType File -ErrorAction SilentlyContinue | Out-Null
     }
 
     # Check if log is too big
     if ((Get-ChildItem $logFile).Length / 1KB -gt $maxLogSizeKB) {
         Rename-Item -Path $logFile -NewName "Archive_$appName`_Log_$(Get-Date -Format MMddyyyy_HHmmss).txt" -Force
-        New-Item -Path $logPath -Name "$date`_$appName`_Log.txt" -ItemType File -ErrorAction SilentlyContinue | Out-Null
+        New-Item -Path $logPath -Name "$appName`_Log.txt" -ItemType File -ErrorAction SilentlyContinue | Out-Null
+        Compress-Archive -Path "$logPath\Archive_$appName`_Log_*.txt" -DestinationPath "$logPath\Archive_$appName`_Logs.zip" -Force
+        Remove-Item -Path "$logPath\Archive_$appName`_Log_*.txt" -Force -ErrorAction SilentlyContinue | Out-Null
     }
     
     if($Severity -eq 'Error'){
@@ -64,23 +90,40 @@ function Write-Log {
 }
 
 if($ShowLicense){
-    . e:\powershell\Get-License.ps1
+    if(-not (Test-Path -Path e:\powershell\Get-License.ps1)) {
+        Write-Log -Message "License script not found at e:\powershell\Get-License.ps1" -Severity 'Error'
+        throw "License script not found. Please ensure the path is correct."
+    } else {
+        . e:\powershell\Get-License.ps1
+    }
 }
 
 Function Generate-Wallpaper {
-    Add-Type -AssemblyName System.Windows.Forms
-    Add-Type -AssemblyName System.Drawing
+    Add-Type -AssemblyName System.Windows.Forms # Required for screen dimensions
+    Add-Type -AssemblyName System.Drawing # Required for drawing graphics
 
     # Screen dimensions
-    $Screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $Screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds # Get primary screen dimensions
+    if (-not $Screen) {
+        Write-Log -Message "Failed to retrieve screen dimensions." -Severity 'Error'
+        throw "Could not determine screen dimensions. Ensure you are running this on a desktop environment."
+    }
 
     # Create bitmap and graphics object
-    $png = New-Object System.Drawing.Bitmap($Screen.Width, $Screen.Height)
-    $graphics = [System.Drawing.Graphics]::FromImage($png)
+    $png = New-Object System.Drawing.Bitmap($Screen.Width, $Screen.Height) # Create a new bitmap with screen dimensions
+    if (-not $png) {
+        Write-Log -Message "Failed to create bitmap for wallpaper." -Severity 'Error'
+        throw "Could not create bitmap for wallpaper. Ensure you have sufficient permissions."
+    }
+    $graphics = [System.Drawing.Graphics]::FromImage($png) # Create a graphics object from the bitmap
+    if (-not $graphics) {
+        Write-Log -Message "Failed to create graphics object for wallpaper." -Severity 'Error'
+        throw "Could not create graphics object for wallpaper. Ensure you have sufficient permissions."
+    }
 
     # Background setup
-    $brushBackground = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::$BackgroundColor)
-    $graphics.FillRectangle($brushBackground, 0, 0, $Screen.Width, $Screen.Height)
+    $brushBackground = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::$BackgroundColor) # Create a brush for the background color
+    $graphics.FillRectangle($brushBackground, 0, 0, $Screen.Width, $Screen.Height) # Fill the rectangle with the background color
 
     # Define system info as a custom object array
     $SystemInfo = @(
@@ -100,9 +143,9 @@ Function Generate-Wallpaper {
     }
 
     # Define spacing & positioning
-    $padding = 50
-    $lineSpacing = $FontSize + 5
-    $currentY = 20
+    $padding = 50 # Padding from edges
+    $lineSpacing = $FontSize + 5 # Space between lines
+    $currentY = 20 # Start Y position for the first line
     $labelX = $Screen.Width - 500  # Right-side placement for labels
     $valueX = $labelX + 200  # Data positioned to the right of labels
 
@@ -134,7 +177,8 @@ Function Generate-Wallpaper {
     $brushLabel.Dispose()
     $brushData.Dispose()
     $graphics.Dispose()
-    $png.Dispose()
+    $png.Dispose() # Dispose of the bitmap to free resources
+    Write-Log -Message "Wallpaper generated and saved to $OutFile" -Severity 'Information'
 
     return Get-Item $OutFile
 }
@@ -251,15 +295,15 @@ Function Generate-Wallpaper {
     }
 
     # Define spacing
-    $padding = 20
-    $lineSpacing = $FontSize + 5
-    $startXLeft = $padding
-    $startXRight = $Screen.Width - $padding
-    $currentY = 10
+    $padding = 20 # Padding from edges
+    $lineSpacing = $FontSize + 5 # Space between lines
+    $startXLeft = $padding # Start X for left-aligned text
+    $startXRight = $Screen.Width - $padding # Start X for right-aligned text
+    $currentY = 10 # Start Y position for the first line
 
     # Loop through each item and align correctly
     foreach ($key in $info.Keys) {
-        $value = $info[$key]
+        $value = $info[$key] # Get the value for the current key
 
         # Draw left-aligned header
         $graphics.DrawString($key, $font, $brushText, $startXLeft, $currentY)
@@ -273,7 +317,7 @@ Function Generate-Wallpaper {
     }
 
     # Save the image
-    $png.Save($OutFile, [System.Drawing.Imaging.ImageFormat]::Png)
+    $png.Save($OutFile, [System.Drawing.Imaging.ImageFormat]::Png) # Save the bitmap as PNG
 
     # Cleanup
     $brushBackground.Dispose()
@@ -286,9 +330,17 @@ Function Generate-Wallpaper {
 
 if ($Wallpaper) {
     Set-Wallpaper -Path $Wallpaper.FullName
-    # Remove the generated wallpaper file after setting it
-    Remove-Item -Path $Wallpaper.FullName -Force -ErrorAction SilentlyContinue | Out-Null
+    if($skipRemove) {
+        # If skipRemove is set, do not remove the wallpaper file
+        # Removing the wallpaper will cause the desktop to revert to a blank state after a period of time as registered wallpaper is missing due to the removal
+        Write-Log -Message "Skipping removal of wallpaper file: $($Wallpaper.FullName)" -Severity 'Information'
+    } else {
+        # Remove the generated wallpaper file after setting it, default behavior
+        Remove-Item -Path $Wallpaper.FullName -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+
     Write-Log -Message "Wallpaper file removed: $($Wallpaper.FullName)" -Severity 'Information'
+    Write-Log -Message "Wallpaper set to: $((Get-ItemProperty -Path 'HKCU:\Control Panel\Desktop\').WallPaper)" -Severity 'Information' # Log the wallpaper path
 } else {
     Write-Log -Message "Failed to generate wallpaper." -Severity Warning
 }
